@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "promotional-banner.schema.json",
+  "title": "Promotional Banner Component Schema",
+  "description": "Schema for the PromotionalBanner CMS component. Defines the data contract between the ops configuration center and the mobile wallet runtime.",
+  "type": "object",
+  "required": ["title", "ctaLink", "rules"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "title": "横幅标题",
+      "description": "Main text displayed on the banner",
+      "minLength": 1,
+      "examples": ["Take the onboarding quiz and earn a chance to win a prize"]
+    },
+    "imageUrl": {
+      "type": "string",
+      "title": "图片资源 URL",
+      "description": "URL of the banner image asset. If empty, a default gift icon is shown.",
+      "format": "uri",
+      "examples": ["https://example.com/banner.png"]
+    },
+    "ctaLink": {
+      "type": "string",
+      "title": "跳转链接（深链接）",
+      "description": "Deep link navigated to on banner tap",
+      "minLength": 1,
+      "examples": ["/staking", "/earn", "tronwallet://staking"]
+    },
+    "rules": {
+      "type": "object",
+      "title": "组件约束与条件",
+      "description": "Display rules controlling visibility, behaviour and distribution targeting",
+      "required": ["priority", "manualClose"],
+      "properties": {
+        "priority": {
+          "type": "integer",
+          "title": "优先级",
+          "description": "Banner display priority. 0 = hidden. Higher value = shown first in carousel.",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 100
+        },
+        "manualClose": {
+          "type": "boolean",
+          "title": "允许手动关闭",
+          "description": "Whether to show a close (×) button on the banner",
+          "default": true
+        },
+        "targeting": {
+          "type": "object",
+          "title": "推送范围 (Targeting)",
+          "description": "Distribution targeting conditions. Empty arrays mean 'all'.",
+          "properties": {
+            "platforms": {
+              "type": "array",
+              "title": "推送平台",
+              "description": "Target OS platforms. Empty = all platforms.",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["Android", "iOS"]
+              },
+              "default": [],
+              "examples": [["Android"], ["iOS"], ["Android", "iOS"]]
+            },
+            "networks": {
+              "type": "array",
+              "title": "推送网络",
+              "description": "Target blockchain networks. Empty = all networks.",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["Ethereum", "Tron", "Arbitrum", "Base", "Polygon"]
+              },
+              "default": [],
+              "examples": [["Tron"], ["Ethereum", "Base"]]
+            },
+            "versions": {
+              "type": "array",
+              "title": "推送版本",
+              "description": "Target app versions. Empty = all versions.",
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "examples": [["2.18.1"], ["2.19.0", "2.20.1"]]
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-tca-trigger": {
+    "description": "TCA trigger config is a sibling field alongside this payload at runtime. Not part of payload schema validation.",
+    "oneOf": [
+      {
+        "type": "object",
+        "title": "立即上线",
+        "properties": { "type": { "const": "immediate" } }
+      },
+      {
+        "type": "object",
+        "title": "定时触发",
+        "required": ["scheduledTime"],
+        "properties": {
+          "type": { "const": "scheduled" },
+          "scheduledTime": { "type": "string", "format": "date-time", "title": "上线时间" }
+        }
+      },
+      {
+        "type": "object",
+        "title": "事件触发",
+        "required": ["eventName"],
+        "properties": {
+          "type": { "const": "event" },
+          "eventName": { "type": "string", "title": "触发事件名", "examples": ["onboarding_complete", "first_deposit"] }
+        }
+      }
+    ]
+  }
+}
