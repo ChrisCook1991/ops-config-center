@@ -1,36 +1,324 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 运营配置中心 — Ops Config Center
 
-## Getting Started
+> Schema 驱动的运营配置后台 PoC（概念验证），支持移动端横幅 (Promotional Banner) 的可视化配置与实时预览。
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 目录
+
+1. [项目概览](#项目概览)
+2. [基本架构](#基本架构)
+3. [工作原理](#工作原理)
+4. [横幅配置项详解](#横幅配置项详解)
+5. [操作流程](#操作流程)
+6. [本地开发](#本地开发)
+
+---
+
+## 项目概览
+
+运营配置中心是一个面向运营人员的内部管理工具，用于无需发版即可动态控制移动端 App 内的营销组件（如横幅、弹窗等）。当前版本支持 **Promotional Banner 横幅** 配置，**Popup 弹窗** 即将上线。
+
+**核心价值：**
+- 运营人员可通过可视化界面配置横幅内容、触发时机和推送范围
+- 所有配置项均经过 JSON Schema 实时校验，确保数据合法
+- 右侧预览区实时渲染移动端效果，所见即所得
+- 最终生成标准化的 JSON 数据协议，由客户端 TCA 引擎消费
+
+---
+
+## 基本架构
+
+```
+infrared-perihelion/
+├── src/
+│   ├── app/
+│   │   ├── admin/          # 运营配置后台（主界面）
+│   │   │   └── page.tsx    # 配置表单、横幅列表、JSON 预览
+│   │   └── sandbox/        # 移动端实时预览模拟器
+│   │       └── page.tsx    # 渲染横幅的沙盒页（内嵌为 iframe）
+│   ├── constants/
+│   │   └── schemas.ts      # 数据类型定义、Schema 常量、默认值
+│   └── utils/
+│       └── validator.ts    # 基于 Schema 的字段合法性校验
+├── schemas/
+│   └── promotional-banner.schema.json  # 官方 JSON Schema（数据合约文档）
+└── next.config.ts
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 技术栈
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 层级 | 技术 |
+|------|------|
+| 框架 | Next.js (App Router) |
+| 语言 | TypeScript + React |
+| 样式 | Tailwind CSS |
+| 图标 | Lucide React |
+| 数据校验 | 自定义 JSON Schema Validator |
+| 跨窗口通信 | `window.postMessage` API |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 工作原理
 
-To learn more about Next.js, take a look at the following resources:
+```
+┌─────────────────────────────────────┐       postMessage        ┌──────────────────────┐
+│           Admin 后台                │  ──────────────────────▶  │     Sandbox 预览      │
+│  /admin                             │                           │  /sandbox (iframe)   │
+│                                     │  { type: 'SYNC_CMS_       │                      │
+│  1. 运营填写横幅配置                   │    BANNERS', banners,    │  实时渲染移动端         │
+│  2. Schema 实时校验                  │    carouselInterval }    │  横幅轮播效果           │
+│  3. 点击「确定」提交至横幅列表          │                          │                      │
+│  4. 左侧自动同步到右侧预览              │◀──────────────────────  │                      │
+│  5. 点击「发布线上」输出最终 JSON       │                          │                      │
+└─────────────────────────────────────┘                           └──────────────────────┘
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 数据流详解
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. **配置阶段**：运营在 `/admin` 页面填写横幅配置，每次字段变更都会触发实时 Schema 校验（绿色 = 有效 / 红色 = 无效）。
 
-## Deploy on Vercel
+2. **暂存阶段**：点击表单底部「确定」按钮后，草稿数据进入"已提交横幅列表"。此时配置尚未发布，只是在本地内存中暂存。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3. **预览同步**：每当横幅列表或轮播间隔发生变更，后台会通过 `postMessage` 将完整的横幅数组实时推送给右侧 iframe 内的 Sandbox 页面，Sandbox 立即渲染最新效果。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. **发布阶段**：点击右上角「发布线上」按钮，系统将所有已提交横幅打包为标准 JSON 数据协议（含 `component`、`version`、`banners`、`metadata` 字段），推送至下游 TCA 引擎。
+
+### 横幅上限
+
+单次最多可配置 **3 条**横幅。超出上限时，新增横幅会自动替换掉最早添加的那一条，并在界面上给出提示。
+
+---
+
+## 横幅配置项详解
+
+每条横幅由两个部分组成：**Action Payload（内容与规则）** 和 **TCA Trigger（触发器）**。
+
+---
+
+### 一、组件内容 (Action Payload)
+
+#### 1. 横幅标题 `title` ⭐ 必填
+
+| 属性 | 说明 |
+|------|------|
+| 类型 | 文本（string） |
+| 约束 | 不能为空 |
+| 示例 | `参与新手答题，赢取丰厚奖励` |
+
+用户在 App 内看到的横幅主文案。
+
+---
+
+#### 2. 跳转链接（深链接）`ctaLink` ⭐ 必填
+
+| 属性 | 说明 |
+|------|------|
+| 类型 | 文本（string） |
+| 约束 | 不能为空，支持路径或 scheme |
+| 示例 | `/staking`、`/earn`、`tronwallet://staking` |
+
+用户点击横幅后跳转的目标页面。新增横幅时系统会按顺序自动预填：第 1 条填 `notifications://system/1`，第 2 条填 `notifications://system/2`，以此类推（运营可自行修改）。
+
+---
+
+#### 3. 图片资源 URL `imageUrl` （可选）
+
+| 属性 | 说明 |
+|------|------|
+| 类型 | 文本（URI 格式） |
+| 约束 | 留空时使用系统默认图标 |
+| 示例 | `https://cdn.example.com/banner-quiz.png` |
+
+横幅左侧展示的图片。建议使用 CDN 链接，图片比例建议为 1:1（方形）。留空时客户端将显示一个默认礼品图标。
+
+---
+
+### 二、组件约束与条件 (Rules)
+
+#### 4. 优先级 `rules.priority`
+
+| 属性 | 说明 |
+|------|------|
+| 类型 | 整数（integer） |
+| 范围 | 0 ~ 1000 |
+| 默认值 | 100 |
+| 特殊值 | **0 = 不显示**（可用于临时下线某条横幅） |
+
+当多条横幅同时存在时，客户端轮播顺序按优先级从高到低排列。数值越大越靠前展示。
+
+**常用策略：**
+- 主推活动：200 ~ 500
+- 常规运营：100（默认）
+- 辅助/次要内容：10 ~ 50
+- 临时下线不删除：0
+
+---
+
+#### 5. 允许手动关闭 `rules.manualClose`
+
+| 属性 | 说明 |
+|------|------|
+| 类型 | 布尔值（boolean） |
+| 默认值 | 开启（true） |
+
+控制横幅右上角是否显示「×」关闭按钮。关闭后用户无法手动隐藏该横幅（仅在 `priority > 0` 时生效）。
+
+---
+
+### 三、推送范围 (Targeting)
+
+以下三个字段均遵循同一规则：**空选 = 推送给所有用户**，选中具体项 = 仅推送给满足条件的用户。
+
+---
+
+#### 6. 推送平台 `rules.targeting.platforms`
+
+| 选项 | 说明 |
+|------|------|
+| `Android` | 仅推送给 Android 用户 |
+| `iOS` | 仅推送给 iOS 用户 |
+| （不选） | **推送给全平台用户** |
+
+可多选。例如同时选中 `Android` 和 `iOS` 与不选效果相同（全平台）。
+
+---
+
+#### 7. 推送网络 `rules.targeting.networks`
+
+| 选项 | 说明 |
+|------|------|
+| `Ethereum` | 以太坊网络用户 |
+| `Tron` | 波场网络用户 |
+| `Arbitrum` | Arbitrum L2 用户 |
+| `Base` | Base L2 用户 |
+| `Polygon` | Polygon 网络用户 |
+| （不选） | **推送给所有网络用户** |
+
+可多选，用于针对特定链活动（如波场专属活动只选 `Tron`）。
+
+---
+
+#### 8. 推送版本 `rules.targeting.versions`
+
+| 选项 | 说明 |
+|------|------|
+| `2.18.1` | 仅 v2.18.1 版本用户 |
+| `2.19.0` | 仅 v2.19.0 版本用户 |
+| `2.20.1` | 仅 v2.20.1 版本用户 |
+| （不选） | **推送给所有版本用户** |
+
+> ⚠️ **注意**：此处为单选逻辑（每次只能选中一个版本）。不选 = 全版本推送。用于灰度测试或针对特定客户端版本的定向推送。
+
+---
+
+### 四、触发器设置 (TCA Trigger)
+
+触发器控制横幅**何时**在客户端显示，与 Action Payload 相互独立。
+
+---
+
+#### 触发类型一：立即上线 `immediate`
+
+点击「确定」后配置立即下发，客户端下次拉取配置时即展示横幅。无需额外配置。
+
+---
+
+#### 触发类型二：定时触发 `scheduled`
+
+| 字段 | 说明 |
+|------|------|
+| **上线时间** `scheduledTime` | 横幅开始展示的时间（精确到分钟） |
+| **下线时间** `endTime` （可选） | 到达该时间后横幅自动从客户端移除 |
+
+适用于活动预热场景，如提前配置好促销横幅，在活动开始时自动上线，在活动结束时自动下线，全程无需人工干预。
+
+> 下线时间不能早于上线时间（表单会自动限制可选范围）。
+
+---
+
+#### 触发类型三：事件触发 `event`
+
+| 字段 | 说明 |
+|------|------|
+| **触发事件名** `eventName` | 用户完成特定操作后触发展示 |
+
+事件名示例：
+- `onboarding_complete` — 完成新手引导后展示
+- `first_deposit` — 首次充值后展示
+
+具体可用事件名需与客户端或后端团队确认。
+
+---
+
+### 五、轮播设置（全局）
+
+轮播间隔为全局设置，影响所有横幅的切换速度。
+
+| 字段 | 说明 |
+|------|------|
+| **轮播间隔时间** | 1 ~ 10 秒，默认 2 秒 |
+| 生效条件 | 仅在配置了 2 条或以上横幅时生效 |
+
+修改后需点击「确认」才会同步到右侧预览，点击「取消」则还原到上次确认的值。
+
+---
+
+## 操作流程
+
+### 新建一条横幅
+
+```
+1. 进入 http://localhost:3000/admin
+2. 在「横幅配置列表」区域点击「+ 新增横幅」
+3. 在弹出的编辑表单中填写：
+   - 横幅标题（必填）
+   - 跳转链接（必填；已自动预填，可修改）
+   - 图片 URL（可选）
+   - 优先级（默认 100）
+   - 是否允许关闭
+   - 推送范围（不选 = 全量推送）
+   - 触发器类型（立即 / 定时 / 事件）
+4. 表单头部出现绿色「Schema 有效」徽章后，「确定」按钮可点击
+5. 点击「确定」，横幅进入列表，右侧预览实时更新
+6. 确认无误后，点击右上角「发布线上」
+```
+
+### 编辑已有横幅
+
+```
+1. 在横幅列表中点击对应条目
+2. 编辑表单展开，修改所需字段
+3. 点击「确定」保存修改
+```
+
+### 删除横幅
+
+```
+1. 在横幅列表中，点击对应条目右侧的垃圾桶图标（🗑）
+2. 删除立即生效，右侧预览同步更新
+```
+
+### 查看生成的 JSON 数据协议
+
+```
+1. 在左侧配置面板底部找到「生成的数据协议 (Raw JSON)」卡片
+2. 点击展开，可查看当前配置对应的完整 JSON
+3. 此 JSON 即为最终发布至客户端的数据格式
+```
+
+---
+
+## 本地开发
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+
+# 访问地址
+# 配置后台：http://localhost:3000/admin
+# 沙盒预览：http://localhost:3000/sandbox（通常不需要单独访问，后台已内嵌）
+```
