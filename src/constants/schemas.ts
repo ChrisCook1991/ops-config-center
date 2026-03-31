@@ -95,8 +95,9 @@ export type TriggerType = "immediate" | "scheduled" | "event";
 
 export interface TcaTrigger {
   type: TriggerType;
-  scheduledTime?: string; // ISO date string for scheduled triggers
-  eventName?: string; // Event name for event triggers
+  scheduledTime?: string; // ISO date string for scheduled triggers — go-live time
+  endTime?: string;       // ISO date string — auto-offline time
+  eventName?: string;     // Event name for event triggers
 }
 
 // Default high-fidelity starting values

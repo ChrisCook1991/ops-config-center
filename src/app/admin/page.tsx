@@ -100,9 +100,16 @@ export default function AdminCmsHomePage() {
 
   // Start creating a new banner
   const handleStartCreate = () => {
-    setDraftPayload({ ...DEFAULT_BANNER_PAYLOAD, title: '' });
+    // Auto-assign ctaLink index based on current banner count
+    const nextIndex = committedBanners.length + 1;
+    const newPayload = {
+      ...DEFAULT_BANNER_PAYLOAD,
+      title: '',
+      ctaLink: `notifications://system/${nextIndex}`,
+    };
+    setDraftPayload(newPayload);
     setDraftTrigger({ ...DEFAULT_TCA_TRIGGER });
-    setValidation(validateBannerPayload({ ...DEFAULT_BANNER_PAYLOAD, title: '' }));
+    setValidation(validateBannerPayload(newPayload));
     setEditingIndex(null);
     setIsCreating(true);
     setIsDirty(false);
@@ -508,12 +515,11 @@ export default function AdminCmsHomePage() {
                 <div>
                   <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5" />推送范围 (Targeting)
-                    <span className="ml-auto text-[10px] font-normal text-gray-400 normal-case">空 = 全部</span>
                   </h3>
                   <div className="space-y-3.5">
                     {/* Platform */}
                     <div>
-                      <div className="text-xs text-gray-500 font-medium mb-2">推送平台</div>
+                      <div className="text-xs text-gray-500 font-medium mb-2 flex items-center">推送平台 <span className="ml-1.5 text-[10px] text-gray-300">空 = 全部</span></div>
                       <div className="flex gap-2">
                         {PLATFORM_OPTIONS.map((p) => {
                           const active = (draftPayload.rules.targeting?.platforms ?? []).includes(p);
@@ -536,7 +542,7 @@ export default function AdminCmsHomePage() {
 
                     {/* Network */}
                     <div>
-                      <div className="text-xs text-gray-500 font-medium mb-2">推送网络</div>
+                      <div className="text-xs text-gray-500 font-medium mb-2 flex items-center">推送网络 <span className="ml-1.5 text-[10px] text-gray-300">空 = 全部</span></div>
                       <div className="flex flex-wrap gap-2">
                         {NETWORK_OPTIONS.map((n) => {
                           const active = (draftPayload.rules.targeting?.networks ?? []).includes(n);
@@ -628,15 +634,27 @@ export default function AdminCmsHomePage() {
                           </div>
                         </button>
                         {draftTrigger.type === 'scheduled' && opt.type === 'scheduled' && (
-                          <div className="mt-2 ml-11">
-                            <label className="block text-xs text-gray-500 mb-1">上线时间</label>
-                            <input
-                              type="datetime-local"
-                              value={draftTrigger.scheduledTime || ''}
-                              onChange={(e) => { setDraftTrigger({ ...draftTrigger, scheduledTime: e.target.value }); setIsDirty(true); }}
-                              className="px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none w-full"
-                            />
-                            <p className="mt-1 text-[11px] text-gray-400">沙盒预览将在到达该时间后自动展示横幅</p>
+                          <div className="mt-2 ml-11 space-y-3">
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-1">上线时间</label>
+                              <input
+                                type="datetime-local"
+                                value={draftTrigger.scheduledTime || ''}
+                                onChange={(e) => { setDraftTrigger({ ...draftTrigger, scheduledTime: e.target.value }); setIsDirty(true); }}
+                                className="px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none w-full"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-1">下线时间 <span className="text-gray-300">(可选)</span></label>
+                              <input
+                                type="datetime-local"
+                                value={draftTrigger.endTime || ''}
+                                min={draftTrigger.scheduledTime || ''}
+                                onChange={(e) => { setDraftTrigger({ ...draftTrigger, endTime: e.target.value || undefined }); setIsDirty(true); }}
+                                className="px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none w-full"
+                              />
+                              <p className="mt-1 text-[11px] text-gray-400">到达下线时间后横幅自动从客户端移除</p>
+                            </div>
                           </div>
                         )}
                         {draftTrigger.type === 'event' && opt.type === 'event' && (

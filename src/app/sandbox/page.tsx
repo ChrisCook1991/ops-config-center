@@ -182,6 +182,8 @@ export default function WalletSandboxPage() {
       if (b.trigger.type === 'scheduled' && b.trigger.scheduledTime) {
         if (new Date() < new Date(b.trigger.scheduledTime)) return false;
       }
+      // Auto-offline: hide if past endTime
+      if (b.trigger.endTime && new Date() > new Date(b.trigger.endTime)) return false;
       return true;
     })
     .sort((a, b) => b.payload.rules.priority - a.payload.rules.priority);
