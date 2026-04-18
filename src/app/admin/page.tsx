@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import {
   DEFAULT_BANNER_PAYLOAD,
+  DEFAULT_BANNER_LAYOUT,
   DEFAULT_TCA_TRIGGER,
   BannerPayload,
   TcaTrigger,
@@ -28,6 +29,8 @@ import {
   PLATFORM_OPTIONS,
   NETWORK_OPTIONS,
   VERSION_OPTIONS,
+  SCREEN_VIEW_OPTIONS,
+  ScreenView,
 } from '../../constants/schemas';
 import { validateBannerPayload, ValidationResult } from '../../utils/validator';
 
@@ -63,6 +66,10 @@ export default function AdminCmsHomePage() {
   const [draftTrigger, setDraftTrigger] = useState<TcaTrigger>(DEFAULT_TCA_TRIGGER);
   const [validation, setValidation] = useState<ValidationResult>({ isValid: true, errors: [] });
   const [isDirty, setIsDirty] = useState(false);
+
+  const [layoutPanelOpen, setLayoutPanelOpen] = useState(false);
+  const [layoutJsonError, setLayoutJsonError] = useState<string | null>(null);
+  const [layoutRawText, setLayoutRawText] = useState<string>('');
 
   const [showJson, setShowJson] = useState(false);
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'published'>('idle');
@@ -110,6 +117,8 @@ export default function AdminCmsHomePage() {
     setDraftPayload(newPayload);
     setDraftTrigger({ ...DEFAULT_TCA_TRIGGER });
     setValidation(validateBannerPayload(newPayload));
+    setLayoutRawText('');
+    setLayoutJsonError(null);
     setEditingIndex(null);
     setIsCreating(true);
     setIsDirty(false);
@@ -121,6 +130,8 @@ export default function AdminCmsHomePage() {
     setDraftPayload({ ...entry.payload });
     setDraftTrigger({ ...entry.trigger });
     setValidation(validateBannerPayload(entry.payload));
+    setLayoutRawText(entry.payload.layout ? JSON.stringify(entry.payload.layout, null, 2) : '');
+    setLayoutJsonError(null);
     setEditingIndex(index);
     setIsCreating(false);
     setIsDirty(false);
@@ -181,6 +192,21 @@ export default function AdminCmsHomePage() {
       updated.rules = { ...updated.rules, [ruleFieldKey]: value };
     } else {
       (updated as Record<string, unknown>)[fieldKey] = value;
+    }
+    // If title changed and layout has a headline element, keep them in sync
+    if (fieldKey === 'title' && updated.layout?.elements?.headline) {
+      const syncedLayout = {
+        ...updated.layout,
+        elements: {
+          ...updated.layout.elements,
+          headline: {
+            ...updated.layout.elements.headline,
+            props: { ...updated.layout.elements.headline.props, content: value as string },
+          },
+        },
+      };
+      updated.layout = syncedLayout;
+      setLayoutRawText(JSON.stringify(syncedLayout, null, 2));
     }
     setDraftPayload(updated as BannerPayload);
     setValidation(validateBannerPayload(updated as BannerPayload));
@@ -446,6 +472,31 @@ export default function AdminCmsHomePage() {
                       />
                     </div>
                     <div>
+                      {/* ScreenView Selector */}
+                      <div className="mb-3">
+                        <label className="block text-sm text-gray-600 mb-1.5 font-medium">推送页面 (ScreenView)</label>
+                        <div className="flex gap-2">
+                          {SCREEN_VIEW_OPTIONS.map((sv) => (
+                            <button
+                              key={sv}
+                              onClick={() => handleFieldChange('screenView', sv)}
+                              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-all ${
+                                (draftPayload.screenView ?? 'Wallet') === sv
+                                  ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                                  : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300'
+                              }`}
+                            >
+                              <span>{sv === 'Wallet' ? '💎' : '🌐'}</span>
+                              <span>{sv}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1 text-[11px] text-gray-400">
+                          组件将出现在 Sandbox 的 {draftPayload.screenView ?? 'Wallet'} 页面
+                        </div>
+                      </div>
+                    </div>
+                    <div>
                       <label className="block text-sm text-gray-600 mb-1.5 font-medium">
                         跳转链接 (深链接) <span className="text-red-400">*</span>
                       </label>
@@ -468,6 +519,75 @@ export default function AdminCmsHomePage() {
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Layout Spec (JSON-Render) Panel */}
+                <div className="border border-dashed border-gray-200 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setLayoutPanelOpen((v) => !v)}
+                    className="w-full flex items-center justify-between px-3.5 py-2.5 bg-gray-50/60 hover:bg-gray-100/60 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Code2 className="w-3.5 h-3.5 text-gray-400" />
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Layout Spec (JSON-Render)</span>
+                      {draftPayload.layout && (
+                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px] font-bold">ON</span>
+                      )}
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${layoutPanelOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {layoutPanelOpen && (
+                    <div className="px-3.5 py-3 space-y-2 bg-white">
+                      <p className="text-[11px] text-gray-400 leading-snug">
+                        编辑 json-render Spec（JSON 格式）。有效时 Sandbox 将使用动态渲染器代替默认模板。<br/>
+                        可用组件: <code className="text-blue-500">BannerCard, BannerIcon, BannerText, BannerButton, BannerBadge, HStack, VStack</code>
+                      </p>
+                      <textarea
+                        rows={10}
+                        spellCheck={false}
+                        value={layoutRawText}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setLayoutRawText(raw);
+                          if (!raw.trim()) {
+                            setDraftPayload({ ...draftPayload, layout: undefined });
+                            setLayoutJsonError(null);
+                            setIsDirty(true);
+                            return;
+                          }
+                          try {
+                            const parsed = JSON.parse(raw);
+                            setDraftPayload({ ...draftPayload, layout: parsed });
+                            setLayoutJsonError(null);
+                            setIsDirty(true);
+                          } catch (err) {
+                            setLayoutJsonError((err as Error).message);
+                          }
+                        }}
+                        placeholder={`{\n  "root": "card",\n  "elements": {\n    "card": { "type": "BannerCard", "children": ["row"] }\n  }\n}`}
+                        className="w-full font-mono text-xs px-3 py-2.5 rounded-lg border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none resize-y bg-gray-50"
+                      />
+                      {layoutJsonError && (
+                        <p className="text-[11px] text-red-500 font-mono">{layoutJsonError}</p>
+                      )}
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => { const spec = { ...DEFAULT_BANNER_LAYOUT, elements: { ...DEFAULT_BANNER_LAYOUT.elements, headline: { ...DEFAULT_BANNER_LAYOUT.elements.headline, props: { ...DEFAULT_BANNER_LAYOUT.elements.headline.props, content: draftPayload.title || DEFAULT_BANNER_LAYOUT.elements.headline.props?.content } } } }; setDraftPayload({ ...draftPayload, layout: spec }); setLayoutRawText(JSON.stringify(spec, null, 2)); setLayoutJsonError(null); setIsDirty(true); }}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors"
+                        >
+                          重置为默认 Layout
+                        </button>
+                        {draftPayload.layout && (
+                          <button
+                            onClick={() => { setDraftPayload({ ...draftPayload, layout: undefined }); setLayoutRawText(''); setLayoutJsonError(null); setIsDirty(true); }}
+                            className="px-3 py-1.5 rounded-lg bg-red-50 text-red-500 text-xs font-medium hover:bg-red-100 transition-colors"
+                          >
+                            移除 Layout（回退默认模板）
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t border-gray-50" />

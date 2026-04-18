@@ -1,6 +1,6 @@
 # 运营配置中心 — Ops Config Center
 
-> Schema 驱动的运营配置后台 PoC（概念验证），支持移动端横幅 (Promotional Banner) 的可视化配置与实时预览。
+> Schema 驱动的运营配置后台 PoC（概念验证），支持移动端横幅 (Promotional Banner) 的可视化配置与实时预览。基于 **Server-Driven UI (SDUI)** 架构，通过 `@json-render/react` 实现 JSON → React 组件树的动态渲染。
 
 ---
 
@@ -10,8 +10,10 @@
 2. [基本架构](#基本架构)
 3. [工作原理](#工作原理)
 4. [横幅配置项详解](#横幅配置项详解)
-5. [操作流程](#操作流程)
-6. [本地开发](#本地开发)
+5. [Layout Spec (SDUI)](#layout-spec-sdui)
+6. [Sandbox 虚拟路由](#sandbox-虚拟路由)
+7. [操作流程](#操作流程)
+8. [本地开发](#本地开发)
 
 ---
 
@@ -22,7 +24,8 @@
 **核心价值：**
 - 运营人员可通过可视化界面配置横幅内容、触发时机和推送范围
 - 所有配置项均经过 JSON Schema 实时校验，确保数据合法
-- 右侧预览区实时渲染移动端效果，所见即所得
+- 右侧预览区实时渲染移动端效果（支持 Wallet / Browser 双页面切换），所见即所得
+- 支持 **Layout Spec（SDUI）**：通过 JSON 动态描述横幅 UI 结构，无需发版即可调整布局
 - 最终生成标准化的 JSON 数据协议，由客户端 TCA 引擎消费
 
 ---
@@ -36,9 +39,11 @@ infrared-perihelion/
 │   │   ├── admin/          # 运营配置后台（主界面）
 │   │   │   └── page.tsx    # 配置表单、横幅列表、JSON 预览
 │   │   └── sandbox/        # 移动端实时预览模拟器
-│   │       └── page.tsx    # 渲染横幅的沙盒页（内嵌为 iframe）
+│   │       └── page.tsx    # Wallet / Browser 双页面沙盒（内嵌为 iframe）
 │   ├── constants/
 │   │   └── schemas.ts      # 数据类型定义、Schema 常量、默认值
+│   ├── lib/
+│   │   └── banner-registry.tsx  # SDUI 组件注册表（供 @json-render/react 使用）
 │   └── utils/
 │       └── validator.ts    # 基于 Schema 的字段合法性校验
 ├── schemas/
@@ -54,6 +59,7 @@ infrared-perihelion/
 | 语言 | TypeScript + React |
 | 样式 | Tailwind CSS |
 | 图标 | Lucide React |
+| **SDUI 渲染引擎** | `@json-render/react` + `@json-render/core` |
 | 数据校验 | 自定义 JSON Schema Validator |
 | 跨窗口通信 | `window.postMessage` API |
 
@@ -66,11 +72,11 @@ infrared-perihelion/
 │           Admin 后台                │  ──────────────────────▶  │     Sandbox 预览      │
 │  /admin                             │                           │  /sandbox (iframe)   │
 │                                     │  { type: 'SYNC_CMS_       │                      │
-│  1. 运营填写横幅配置                   │    BANNERS', banners,    │  实时渲染移动端         │
-│  2. Schema 实时校验                  │    carouselInterval }    │  横幅轮播效果           │
-│  3. 点击「确定」提交至横幅列表          │                          │                      │
-│  4. 左侧自动同步到右侧预览              │◀──────────────────────  │                      │
-│  5. 点击「发布线上」输出最终 JSON       │                          │                      │
+│  1. 运营填写横幅配置                   │    BANNERS', banners,    │  按 screenView 过滤    │
+│  2. Schema 实时校验                  │    carouselInterval }    │  SDUI 或 Legacy 渲染   │
+│  3. 点击「确定」提交至横幅列表          │                           │  支持 Wallet/Browser   │
+│  4. 左侧自动同步到右侧预览              │◀──────────────────────  │  页面虚拟路由切换       │
+│  5. 点击「发布线上」输出最终 JSON       │                           │                      │
 └─────────────────────────────────────┘                           └──────────────────────┘
 ```
 
@@ -80,7 +86,7 @@ infrared-perihelion/
 
 2. **暂存阶段**：点击表单底部「确定」按钮后，草稿数据进入"已提交横幅列表"。此时配置尚未发布，只是在本地内存中暂存。
 
-3. **预览同步**：每当横幅列表或轮播间隔发生变更，后台会通过 `postMessage` 将完整的横幅数组实时推送给右侧 iframe 内的 Sandbox 页面，Sandbox 立即渲染最新效果。
+3. **预览同步**：每当横幅列表或轮播间隔发生变更，后台会通过 `postMessage` 将完整的横幅数组实时推送给右侧 iframe 内的 Sandbox 页面。Sandbox 根据 `screenView` 字段过滤横幅，仅在对应页面（Wallet / Browser）渲染；若 payload 含 `layout` 字段则调用 `@json-render/react` 动态渲染，否则降级使用硬编码模板。
 
 4. **发布阶段**：点击右上角「发布线上」按钮，系统将所有已提交横幅打包为标准 JSON 数据协议（含 `component`、`version`、`banners`、`metadata` 字段），推送至下游 TCA 引擎。
 
@@ -106,11 +112,28 @@ infrared-perihelion/
 | 约束 | 不能为空 |
 | 示例 | `参与新手答题，赢取丰厚奖励` |
 
-用户在 App 内看到的横幅主文案。
+用户在 App 内看到的横幅主文案。若同时使用了 Layout Spec，修改标题会自动同步更新 Spec 中 `headline` 元素的 `content` 内容。
 
 ---
 
-#### 2. 跳转链接（深链接）`ctaLink` ⭐ 必填
+#### 2. 推送页面 `screenView`（可选）
+
+| 属性 | 说明 |
+|------|------|
+| 类型 | 枚举（string） |
+| 可选值 | `Wallet`（默认）、`Browser` |
+| 默认值 | `Wallet` |
+
+控制横幅出现在 Sandbox 的哪个页面。Admin 表单中提供分段选择器（💎 Wallet / 🌐 Browser）。
+
+- **Wallet** — 横幅显示在钱包首页（余额卡片下方）
+- **Browser** — 横幅显示在 DApp 浏览器页（搜索栏下方）
+
+Sandbox 底部导航栏可在两个页面间切换，每个页面仅展示分配给自己的横幅。未配置 `screenView` 的旧横幅默认视为 `Wallet`，向下兼容。
+
+---
+
+#### 3. 跳转链接（深链接）`ctaLink` ⭐ 必填
 
 | 属性 | 说明 |
 |------|------|
@@ -122,21 +145,32 @@ infrared-perihelion/
 
 ---
 
-#### 3. 图片资源 URL `imageUrl` （可选）
+#### 4. 图片资源 URL `imageUrl` （可选）
 
 | 属性 | 说明 |
 |------|------|
 | 类型 | 文本（URI 格式） |
 | 约束 | 留空时使用系统默认图标 |
-| 示例 | `https://cdn.example.com/banner-quiz.png` |
+| 示例 | `https://assets.coingecko.com/coins/images/279/small/ethereum.png` |
 
 横幅左侧展示的图片。建议使用 CDN 链接，图片比例建议为 1:1（方形）。留空时客户端将显示一个默认礼品图标。
+
+> ⚠️ 部分图床开启了防盗链，直接引用会导致图片裂开。推荐使用 CoinGecko CDN（`https://assets.coingecko.com/coins/images/...`）或自有图床。图片加载失败时 Sandbox 会自动降级显示礼品图标。
+
+**常用 CoinGecko Logo：**
+
+| 币种 | URL |
+|------|-----|
+| ETH | `https://assets.coingecko.com/coins/images/279/small/ethereum.png` |
+| USDT | `https://assets.coingecko.com/coins/images/325/small/Tether.png` |
+| TRX | `https://assets.coingecko.com/coins/images/1094/small/tron-logo.png` |
+| BTC | `https://assets.coingecko.com/coins/images/1/small/bitcoin.png` |
 
 ---
 
 ### 二、组件约束与条件 (Rules)
 
-#### 4. 优先级 `rules.priority`
+#### 5. 优先级 `rules.priority`
 
 | 属性 | 说明 |
 |------|------|
@@ -155,7 +189,7 @@ infrared-perihelion/
 
 ---
 
-#### 5. 允许手动关闭 `rules.manualClose`
+#### 6. 允许手动关闭 `rules.manualClose`
 
 | 属性 | 说明 |
 |------|------|
@@ -172,7 +206,7 @@ infrared-perihelion/
 
 ---
 
-#### 6. 推送平台 `rules.targeting.platforms`
+#### 7. 推送平台 `rules.targeting.platforms`
 
 | 选项 | 说明 |
 |------|------|
@@ -184,7 +218,7 @@ infrared-perihelion/
 
 ---
 
-#### 7. 推送网络 `rules.targeting.networks`
+#### 8. 推送网络 `rules.targeting.networks`
 
 | 选项 | 说明 |
 |------|------|
@@ -199,16 +233,16 @@ infrared-perihelion/
 
 ---
 
-#### 8. 推送版本 `rules.targeting.versions`
+#### 9. 推送版本 `rules.targeting.versions`
 
 | 选项 | 说明 |
 |------|------|
 | `2.18.1` | 仅 v2.18.1 版本用户 |
 | `2.19.0` | 仅 v2.19.0 版本用户 |
 | `2.20.1` | 仅 v2.20.1 版本用户 |
-| （不选） | **推送给所有版本用户** |
+| （不选） | **不指定版本（全版本推送）** |
 
-> ⚠️ **注意**：此处为单选逻辑（每次只能选中一个版本）。不选 = 全版本推送。用于灰度测试或针对特定客户端版本的定向推送。
+> ⚠️ **注意**：此处为单选逻辑（每次只能选中一个版本）。**不选不等于全版本**，需明确理解业务含义后再配置。用于灰度测试或针对特定客户端版本的定向推送。
 
 ---
 
@@ -258,9 +292,85 @@ infrared-perihelion/
 | 字段 | 说明 |
 |------|------|
 | **轮播间隔时间** | 1 ~ 10 秒，默认 2 秒 |
-| 生效条件 | 仅在配置了 2 条或以上横幅时生效 |
+| 生效条件 | 仅在同一 ScreenView 页面内配置了 2 条或以上横幅时生效 |
 
 修改后需点击「确认」才会同步到右侧预览，点击「取消」则还原到上次确认的值。
+
+---
+
+## Layout Spec (SDUI)
+
+每条横幅支持一个可选的 `layout` 字段，用 JSON 描述横幅的 UI 结构（组件树）。当 `layout` 存在时，Sandbox 使用 `@json-render/react` 动态渲染，忽略硬编码模板；当 `layout` 不存在时，回退到旧的固定卡片样式。
+
+### 可用组件
+
+| 组件名 | 作用 | 主要 Props |
+|--------|------|------------|
+| `BannerCard` | 外层渐变容器（`min-h: 80px`，自动居中内容） | — |
+| `BannerIcon` | 图片或默认礼物图标，加载失败自动降级显示礼品图标 | `src: string` |
+| `BannerText` | 文本段落 | `content`, `weight: bold/normal`, `size: sm/base` |
+| `BannerButton` | 点击跳转按钮，触发 `press` 事件 | `label` |
+| `BannerBadge` | 彩色圆角徽章（如「NEW」「HOT」） | `content`, `color: CSS 色值` |
+| `HStack` | 水平 Flex 容器 | — |
+| `VStack` | 垂直 Flex 容器 | — |
+
+> 在 `src/lib/banner-registry.tsx` 中注册新组件后即可在 Spec 中使用，无需修改 Sandbox 核心代码。
+
+### 默认 Spec 结构
+
+```json
+{
+  "root": "card",
+  "elements": {
+    "card":     { "type": "BannerCard",   "children": ["row"] },
+    "row":      { "type": "HStack",       "children": ["icon", "body"] },
+    "icon":     { "type": "BannerIcon",   "props": { "src": "" } },
+    "body":     { "type": "VStack",       "children": ["headline", "cta"] },
+    "headline": { "type": "BannerText",   "props": { "content": "横幅标题", "weight": "bold" } },
+    "cta":      { "type": "BannerButton", "props": { "label": "Tap to learn more →" },
+                  "on": { "press": { "action": "openBanner" } } }
+  }
+}
+```
+
+### 事件系统
+
+`on.press.action` 对应 Sandbox 中注册的 handler 名称：
+
+| action 值 | 效果 |
+|-----------|------|
+| `openBanner` | 跳转到横幅详情文章页（当前唯一内置 handler） |
+| 其他自定义值 | 需在 `sandbox/page.tsx` 的 `JSONUIProvider handlers` 中注册后生效 |
+
+### 数据一致性
+
+- 表单「横幅标题」字段是 `headline.props.content` 的**主数据源**：
+  - 点击「重置为默认 Layout」时，标题自动填入 `headline.props.content`
+  - 修改表单标题时，若 `layout` 中存在 `headline` 元素，`content` 自动同步更新
+- 若在 Spec textarea 中手动修改了 `headline.content`，后续再修改表单标题会覆盖手动值
+
+---
+
+## Sandbox 虚拟路由
+
+Sandbox（`/sandbox`）内置两个原生页面，通过底部导航栏切换：
+
+| 页面 | 底部导航 | 横幅插槽位置 | 对应 ScreenView |
+|------|----------|-------------|----------------|
+| **Wallet 钱包** | 💎 Wallet（Home 图标） | 余额卡片 → 操作按钮 → **横幅** → 代币列表 | `Wallet` |
+| **Browser DApp 浏览器** | 🌐 Browser（Globe 图标） | 搜索栏 → **横幅** → 收藏 DApp 网格 → 热门列表 | `Browser` |
+
+**Browser 页功能（基于真实产品截图还原）：**
+- 搜索栏（Search or input URL + QR 扫描图标）
+- 横幅插槽（无 Browser 横幅时显示原生占位卡片"New DApp Browser Feature"）
+- Fav / Recent 标签页
+- DApp 图标网格（Uniswap、Bridgers、Venus、Lido）
+- 链过滤器（ETH / EOS / TRON）
+- Popular DApp 列表（Babylon、Optimex、CowSwap）
+
+**轮播稳定性：**
+- 所有横幅卡片（json-render 和 Legacy 两种）统一 `min-h: 80px`，防止切换时高度跳动
+- 可点击的卡片 wrapper 加 `outline-none`，消除浏览器默认聚焦黑色边框
 
 ---
 
@@ -273,14 +383,17 @@ infrared-perihelion/
 2. 在「横幅配置列表」区域点击「+ 新增横幅」
 3. 在弹出的编辑表单中填写：
    - 横幅标题（必填）
+   - 推送页面 ScreenView（💎 Wallet 或 🌐 Browser，默认 Wallet）
    - 跳转链接（必填；已自动预填，可修改）
    - 图片 URL（可选）
+   - Layout Spec（可选；展开折叠块 → 点「重置为默认 Layout」填入模板 → 按需编辑）
    - 优先级（默认 100）
    - 是否允许关闭
    - 推送范围（不选 = 全量推送）
    - 触发器类型（立即 / 定时 / 事件）
 4. 表单头部出现绿色「Schema 有效」徽章后，「确定」按钮可点击
 5. 点击「确定」，横幅进入列表，右侧预览实时更新
+   - 若配置的是 Browser 横幅，在 Sandbox 底部点击 Browser 标签可预览
 6. 确认无误后，点击右上角「发布线上」
 ```
 

@@ -90,6 +90,36 @@
           }
         }
       }
+    },
+    "layout": {
+      "type": "object",
+      "title": "Layout Spec (JSON-Render)",
+      "description": "Optional json-render Spec. When present, Sandbox renders the banner dynamically via @json-render/react instead of the default hardcoded template.",
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "Key of the root element in the elements map"
+        },
+        "elements": {
+          "type": "object",
+          "description": "Flat map of element keys to element descriptors",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string", "description": "Component type name (must exist in the banner registry)" },
+              "props": { "type": "object", "description": "Props passed to the component" },
+              "children": { "type": "array", "items": { "type": "string" }, "description": "Ordered list of child element keys" },
+              "on": { "type": "object", "description": "Event → action bindings" }
+            }
+          }
+        },
+        "state": {
+          "type": "object",
+          "description": "Initial state model for $state/$bindState expressions"
+        }
+      },
+      "required": ["root", "elements"]
     }
   },
   "x-tca-trigger": {

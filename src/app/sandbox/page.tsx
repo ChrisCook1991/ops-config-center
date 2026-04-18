@@ -18,8 +18,10 @@ import {
   ChevronRight,
   Bell,
 } from 'lucide-react';
+import { Renderer, JSONUIProvider } from '@json-render/react';
 import { BannerPayload } from '../../constants/schemas';
 import { BannerEntry } from '../admin/page';
+import { bannerRegistry } from '../../lib/banner-registry';
 
 interface ActiveBanner extends BannerEntry {
   dismissed: boolean;
@@ -148,6 +150,7 @@ export default function WalletSandboxPage() {
   const [banners, setBanners] = useState<ActiveBanner[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [carouselInterval, setCarouselInterval] = useState(2);
+  const [currentScreen, setCurrentScreen] = useState<'Wallet' | 'Browser'>('Wallet');
   const [view, setView] = useState<View>('home');
   const [notifTab, setNotifTab] = useState<'transaction' | 'system'>('system');
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -175,6 +178,9 @@ export default function WalletSandboxPage() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // Reset carousel when switching screens
+  useEffect(() => { setCurrentIndex(0); }, [currentScreen]);
+
   const visibleBanners = banners
     .filter((b) => {
       if (b.dismissed) return false;
@@ -182,8 +188,10 @@ export default function WalletSandboxPage() {
       if (b.trigger.type === 'scheduled' && b.trigger.scheduledTime) {
         if (new Date() < new Date(b.trigger.scheduledTime)) return false;
       }
-      // Auto-offline: hide if past endTime
       if (b.trigger.endTime && new Date() > new Date(b.trigger.endTime)) return false;
+      // ── ScreenView filter: only show banners targeting the current screen ──
+      const sv = b.payload.screenView ?? 'Wallet';
+      if (sv !== currentScreen) return false;
       return true;
     })
     .sort((a, b) => b.payload.rules.priority - a.payload.rules.priority);
@@ -205,17 +213,17 @@ export default function WalletSandboxPage() {
   const handleNext = () => setCurrentIndex((i) => Math.min(visibleBanners.length - 1, i + 1));
   const currentBanner = visibleBanners[currentIndex] ?? null;
   const nextScheduled = banners
-    .filter((b) => !b.dismissed && b.trigger.type === 'scheduled' && b.trigger.scheduledTime && new Date(b.trigger.scheduledTime) > new Date())
+    .filter((b) => !b.dismissed && b.trigger.type === 'scheduled' && b.trigger.scheduledTime
+      && new Date(b.trigger.scheduledTime) > new Date()
+      && (b.payload.screenView ?? 'Wallet') === currentScreen)
     .sort((a, b) => new Date(a.trigger.scheduledTime!).getTime() - new Date(b.trigger.scheduledTime!).getTime())[0];
 
-  // Navigate to article detail when banner is tapped — generate article from banner title
   const handleBannerClick = () => {
     if (!currentBanner) return;
     const article = generateArticleFromBanner(
       currentBanner.payload.title,
       currentBanner.payload.ctaLink
     );
-    // Add to dynamic messages list (deduplicate by title)
     setDynamicMessages((prev) =>
       prev.some((m) => m.title === article.title) ? prev : [article, ...prev]
     );
@@ -223,7 +231,6 @@ export default function WalletSandboxPage() {
     setView('article');
   };
 
-  // Open static system message as article
   const handleMsgClick = (msg: typeof SYSTEM_MESSAGES[0]) => {
     setSelectedArticle({ emoji: msg.emoji, title: msg.title, date: `2026-${msg.date}`, content: msg.content });
     setView('article');
@@ -233,7 +240,6 @@ export default function WalletSandboxPage() {
     const article = selectedArticle;
     return (
       <div className="min-h-screen bg-black text-white font-sans antialiased select-none">
-        {/* Status Bar */}
         <div className="flex justify-between items-center px-6 pt-8 pb-2 text-white">
           <div className="font-semibold text-base">8:57</div>
           <div className="flex items-center gap-1.5">
@@ -245,8 +251,6 @@ export default function WalletSandboxPage() {
             </div>
           </div>
         </div>
-
-        {/* Nav Bar */}
         <div className="flex items-center px-5 pb-3">
           <button onClick={() => { setView('notifications'); setNotifTab('system'); }} className="p-1 -ml-1">
             <ChevronLeft className="w-6 h-6 text-white" />
@@ -254,8 +258,6 @@ export default function WalletSandboxPage() {
           <div className="flex-1 text-center font-semibold text-base text-white">Details</div>
           <div className="w-8" />
         </div>
-
-        {/* Article Content */}
         <div className="px-5 pb-24 overflow-y-auto">
           <h1 className="text-xl font-bold text-white leading-snug mb-1">
             {article.emoji} {article.title}
@@ -283,12 +285,9 @@ export default function WalletSandboxPage() {
     );
   }
 
-
-  // ─── Notifications View ─────────────────────────────────────────────────
   if (view === 'notifications') {
     return (
       <div className="min-h-screen bg-black text-white font-sans antialiased select-none flex flex-col">
-        {/* Status Bar */}
         <div className="flex justify-between items-center px-6 pt-8 pb-2 text-white shrink-0">
           <div className="font-semibold text-base">8:57</div>
           <div className="flex items-center gap-1.5">
@@ -300,8 +299,6 @@ export default function WalletSandboxPage() {
             </div>
           </div>
         </div>
-
-        {/* Nav Bar */}
         <div className="flex items-center px-5 pb-2 shrink-0">
           <button onClick={() => setView('home')} className="p-1 -ml-1">
             <ChevronLeft className="w-6 h-6 text-white" />
@@ -309,8 +306,6 @@ export default function WalletSandboxPage() {
           <div className="flex-1 text-center font-semibold text-base text-white">Notifications</div>
           <button className="text-sm text-blue-400 font-medium">All Read</button>
         </div>
-
-        {/* Tabs */}
         <div className="flex px-5 border-b border-gray-800 shrink-0">
           {[
             { key: 'transaction', label: 'Transaction Notice' },
@@ -330,8 +325,6 @@ export default function WalletSandboxPage() {
             </button>
           ))}
         </div>
-
-        {/* Message List */}
         <div className="flex-1 overflow-y-auto">
           {notifTab === 'system' ? (
             [...dynamicMessages, ...SYSTEM_MESSAGES.map((msg) => ({ ...msg, preview: msg.preview }))].map((msg, i) => {
@@ -376,7 +369,112 @@ export default function WalletSandboxPage() {
     );
   }
 
-  // ─── Home / Wallet View ─────────────────────────────────────────────────
+  // ── Shared banner carousel slot (used in both Wallet and Browser) ──────────
+  const bannerSlot = (
+    <div ref={scrollRef}>
+      {visibleBanners.length === 0 ? (
+        nextScheduled ? (
+          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 flex items-center gap-3">
+            <Clock className="w-5 h-5 text-blue-400 shrink-0"/>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-gray-500 font-medium">横幅待上线</div>
+              <div className="text-xs text-gray-400 truncate">预计上线：{new Date(nextScheduled.trigger.scheduledTime!).toLocaleString('zh-CN')}</div>
+            </div>
+          </div>
+        ) : null
+      ) : (
+        <>
+          {currentBanner && (
+            <div className="relative min-h-[80px] overflow-hidden">
+              {currentBanner.payload.layout ? (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleBannerClick}
+                  onKeyDown={(e) => e.key === 'Enter' && handleBannerClick()}
+                  className="cursor-pointer transition-all duration-300 active:scale-[0.98] relative outline-none focus-visible:ring-0"
+                >
+                  {currentBanner.payload.rules.manualClose && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDismiss(currentBanner.id); }}
+                      className="absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-full bg-gray-200/80 flex items-center justify-center hover:bg-gray-300/80 transition-colors"
+                    >
+                      <X className="w-3 h-3 text-gray-500"/>
+                    </button>
+                  )}
+                  <JSONUIProvider
+                    registry={bannerRegistry}
+                    handlers={{ openBanner: async () => handleBannerClick() }}
+                  >
+                    <Renderer
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      spec={currentBanner.payload.layout as any}
+                      registry={bannerRegistry}
+                    />
+                  </JSONUIProvider>
+                </div>
+              ) : (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleBannerClick}
+                  onKeyDown={(e) => e.key === 'Enter' && handleBannerClick()}
+                  className="w-full text-left p-4 rounded-2xl bg-gradient-to-br from-cyan-50 via-blue-50 to-indigo-50 border border-blue-100/50 flex items-center gap-3.5 relative shadow-sm shadow-blue-100/20 transition-all duration-300 active:scale-[0.98] cursor-pointer outline-none focus-visible:ring-0 min-h-[80px]"
+                >
+                  {currentBanner.payload.rules.manualClose && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDismiss(currentBanner.id); }}
+                      className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-gray-200/80 flex items-center justify-center hover:bg-gray-300/80 transition-colors"
+                    >
+                      <X className="w-3 h-3 text-gray-500"/>
+                    </button>
+                  )}
+                  <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-blue-100/30 flex items-center justify-center shrink-0">
+                    {currentBanner.payload.imageUrl ? (
+                      <img src={currentBanner.payload.imageUrl} alt="banner" className="w-8 h-8 rounded object-cover"/>
+                    ) : (
+                      <Gift className="w-6 h-6 text-blue-500"/>
+                    )}
+                  </div>
+                  <div className="pr-5 flex-1 min-w-0">
+                    <div className="font-semibold text-sm text-blue-900 leading-snug">{currentBanner.payload.title}</div>
+                    {currentBanner.payload.ctaLink && (
+                      <div className="mt-0.5 text-xs text-blue-400 font-medium">Tap to learn more →</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {visibleBanners.length > 1 && (
+            <div className="flex items-center justify-between mt-2.5 px-1">
+              <button onClick={handlePrev} disabled={currentIndex === 0} className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${currentIndex === 0 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100'}`}>
+                <ChevronLeft className="w-4 h-4"/>
+              </button>
+              <div className="flex items-center gap-1.5">
+                {visibleBanners.map((_, i) => (
+                  <button key={i} onClick={() => setCurrentIndex(i)} className={`transition-all duration-200 rounded-full ${i === currentIndex ? 'w-4 h-1.5 bg-blue-500' : 'w-1.5 h-1.5 bg-gray-300'}`}/>
+                ))}
+              </div>
+              <button onClick={handleNext} disabled={currentIndex === visibleBanners.length - 1} className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${currentIndex === visibleBanners.length - 1 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100'}`}>
+                <ChevronRight className="w-4 h-4"/>
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  // ─── Main Shell ─────────────────────────────────────────────────────────────
+  const navItems = [
+    { name: 'Wallet',  screen: 'Wallet'  as const, icon: Home },
+    { name: 'Market',  screen: 'Wallet'  as const, icon: BarChart3 },
+    { name: 'Browser', screen: 'Browser' as const, icon: Globe },
+    { name: 'Profile', screen: 'Wallet'  as const, icon: User },
+  ];
+
   return (
     <div className="min-h-screen bg-white text-[#1C1C1E] font-sans antialiased select-none">
       {/* Status Bar */}
@@ -392,156 +490,189 @@ export default function WalletSandboxPage() {
         </div>
       </div>
 
-      {/* Header */}
-      <div className="px-5 flex justify-between items-center mt-2">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-red-500/20">T</div>
-          <div>
-            <div className="text-xs text-gray-400">Main wallet</div>
-            <div className="font-semibold text-base text-gray-900">tron 测试</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => { setNotifTab('system'); setView('notifications'); }} className="relative">
-            <Bell className="w-5 h-5 text-gray-400" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
-          </button>
-          <ScanLine className="w-5 h-5 text-gray-400" />
-        </div>
-      </div>
-
-      {/* Balance Card */}
-      <div className="mx-5 mt-5 p-5 rounded-2xl bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
-        <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-white/5"/>
-        <div className="absolute -bottom-6 -left-6 w-24 h-24 rounded-full bg-white/5"/>
-        <div className="relative z-10">
-          <div className="text-sm text-blue-100 mb-1">Total Balance</div>
-          <div className="font-bold text-3xl tracking-tight">$ 8.59</div>
-          <div className="mt-3 text-blue-100/80 flex items-center gap-1.5 text-xs">
-            <span className="font-mono">TGVgHmQYVB...XSdB7vCVpf</span>
-            <Copy className="w-3 h-3 opacity-70"/>
-          </div>
-          <button className="mt-3 px-3 py-1 bg-white/15 backdrop-blur-sm rounded-full text-xs font-medium border border-white/20">Tron</button>
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="grid grid-cols-4 gap-3 px-5 mt-6 text-center">
-        {[
-          { name: 'Transfer', icon: ArrowUp, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { name: 'Receive', icon: ArrowDown, color: 'text-green-600', bg: 'bg-green-50' },
-          { name: 'Activity', icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50' },
-          { name: 'Rent', icon: Sparkles, color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map((item) => (
-          <div key={item.name} className="flex flex-col items-center">
-            <div className={`w-12 h-12 rounded-xl ${item.bg} flex items-center justify-center`}>
-              <item.icon className={`w-5 h-5 ${item.color}`}/>
+      {/* ── Wallet Screen ── */}
+      {currentScreen === 'Wallet' && (
+        <div className="overflow-y-auto pb-20">
+          {/* Header */}
+          <div className="px-5 flex justify-between items-center mt-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-red-500/20">T</div>
+              <div>
+                <div className="text-xs text-gray-400">Main wallet</div>
+                <div className="font-semibold text-base text-gray-900">tron 测试</div>
+              </div>
             </div>
-            <div className="mt-1.5 text-xs text-gray-500 font-medium">{item.name}</div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => { setNotifTab('system'); setView('notifications'); }} className="relative">
+                <Bell className="w-5 h-5 text-gray-400" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+              </button>
+              <ScanLine className="w-5 h-5 text-gray-400" />
+            </div>
           </div>
-        ))}
-      </div>
+          {/* Balance Card */}
+          <div className="mx-5 mt-5 p-5 rounded-2xl bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-white/5"/>
+            <div className="absolute -bottom-6 -left-6 w-24 h-24 rounded-full bg-white/5"/>
+            <div className="relative z-10">
+              <div className="text-sm text-blue-100 mb-1">Total Balance</div>
+              <div className="font-bold text-3xl tracking-tight">$ 8.59</div>
+              <div className="mt-3 text-blue-100/80 flex items-center gap-1.5 text-xs">
+                <span className="font-mono">TGVgHmQYVB...XSdB7vCVpf</span>
+                <Copy className="w-3 h-3 opacity-70"/>
+              </div>
+              <button className="mt-3 px-3 py-1 bg-white/15 backdrop-blur-sm rounded-full text-xs font-medium border border-white/20">Tron</button>
+            </div>
+          </div>
+          {/* Action Buttons */}
+          <div className="grid grid-cols-4 gap-3 px-5 mt-6 text-center">
+            {[
+              { name: 'Transfer', icon: ArrowUp, color: 'text-blue-600', bg: 'bg-blue-50' },
+              { name: 'Receive', icon: ArrowDown, color: 'text-green-600', bg: 'bg-green-50' },
+              { name: 'Activity', icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50' },
+              { name: 'Rent', icon: Sparkles, color: 'text-purple-600', bg: 'bg-purple-50' },
+            ].map((item) => (
+              <div key={item.name} className="flex flex-col items-center">
+                <div className={`w-12 h-12 rounded-xl ${item.bg} flex items-center justify-center`}>
+                  <item.icon className={`w-5 h-5 ${item.color}`}/>
+                </div>
+                <div className="mt-1.5 text-xs text-gray-500 font-medium">{item.name}</div>
+              </div>
+            ))}
+          </div>
+          {/* Promotional Banner Carousel */}
+          <div className="px-5 mt-6 mb-2">
+            {bannerSlot}
+          </div>
+          {/* Token List */}
+          <div className="px-5 mb-6 mt-4">
+            <div className="flex justify-between items-center mb-3">
+              <div className="font-semibold text-sm text-gray-900">Tokens</div>
+              <div className="text-xs text-blue-500 font-medium">See All</div>
+            </div>
+            <div className="flex items-center justify-between py-3 border-b border-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-bold">T</div>
+                <div><div className="font-medium text-sm">TRX</div><div className="text-xs text-gray-400">$0.1234</div></div>
+              </div>
+              <div className="text-right"><div className="font-medium text-sm">69.52</div><div className="text-xs text-gray-400">$8.59</div></div>
+            </div>
+            <div className="flex items-center justify-between py-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xs font-bold">$</div>
+                <div><div className="font-medium text-sm">USDT</div><div className="text-xs text-gray-400">$1.0001</div></div>
+              </div>
+              <div className="text-right"><div className="font-medium text-sm">0.00</div><div className="text-xs text-gray-400">$0.00</div></div>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Promotional Banner Carousel */}
-      <div className="px-5 mt-6 mb-2" ref={scrollRef}>
-        {visibleBanners.length === 0 ? (
-          nextScheduled ? (
-            <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 flex items-center gap-3">
-              <Clock className="w-5 h-5 text-blue-400 shrink-0"/>
+      {/* ── Browser Screen ── */}
+      {currentScreen === 'Browser' && (
+        <div className="overflow-y-auto pb-20">
+          {/* Search Bar */}
+          <div className="px-4 pt-3 pb-3">
+            <div className="flex items-center gap-2.5 bg-gray-100 rounded-2xl px-4 py-3">
+              <svg className="w-4 h-4 text-gray-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <span className="text-sm text-gray-400 flex-1">Search or input URL</span>
+              <div className="w-5 h-5 border-2 border-gray-400 rounded-sm flex items-center justify-center shrink-0">
+                <div className="w-2.5 h-2.5 border border-gray-400 rounded-[2px]"/>
+              </div>
+            </div>
+          </div>
+
+          {/* Banner Slot: admin-configured OR native placeholder */}
+          <div className="px-4 mb-4">
+            {visibleBanners.length > 0 ? (
+              bannerSlot
+            ) : (
+              /* Native placeholder — shown when no Browser banner is configured */
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-teal-50 via-cyan-50 to-emerald-50 border border-teal-100/80 flex items-center gap-3.5">
+                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm border border-teal-100/50 shrink-0 text-xl">
+                  💻
+                </div>
+                <div>
+                  <div className="text-xs text-teal-600 font-medium mb-0.5">New DApp Browser Feature</div>
+                  <div className="text-sm font-bold text-gray-900 leading-snug">Desktop Websites on Mobile</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Fav / Recent Tabs */}
+          <div className="flex px-4 border-b border-gray-100 mb-4">
+            {['Fav', 'Recent'].map((tab, i) => (
+              <button key={tab} className={`pb-2.5 mr-6 text-sm font-semibold relative ${i === 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                {tab}
+                {i === 0 && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-900 rounded-full"/>}
+              </button>
+            ))}
+          </div>
+
+          {/* DApp Icons Grid */}
+          <div className="grid grid-cols-4 gap-2 px-4 mb-6">
+            {[
+              { name: 'Uniswap', label: '🦄', bg: 'bg-pink-50 border border-pink-100' },
+              { name: 'Bridgers', label: 'B', bg: 'bg-purple-500 text-white font-bold' },
+              { name: 'Venus', label: 'V', bg: 'bg-teal-900 text-white font-bold' },
+              { name: 'Lido', label: '💧', bg: 'bg-gradient-to-br from-pink-100 to-blue-100' },
+            ].map((dapp) => (
+              <div key={dapp.name} className="flex flex-col items-center">
+                <div className={`w-14 h-14 rounded-2xl ${dapp.bg} flex items-center justify-center text-xl mb-1.5 shadow-sm`}>
+                  {dapp.label}
+                </div>
+                <span className="text-[11px] text-gray-600 font-medium text-center leading-tight">{dapp.name}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Chain Filter Tabs */}
+          <div className="flex px-4 mb-3 gap-5">
+            {['ETH', 'EOS', 'TRON'].map((chain, i) => (
+              <button key={chain} className={`text-sm font-bold pb-1.5 relative ${i === 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                {chain}
+                {i === 0 && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full"/>}
+              </button>
+            ))}
+          </div>
+
+          {/* Popular Header */}
+          <div className="flex justify-between items-center px-4 mb-2">
+            <span className="text-sm font-bold text-gray-900">Popular</span>
+            <span className="text-xs text-gray-400 font-medium flex items-center gap-0.5">All <ChevronRight className="w-3 h-3"/></span>
+          </div>
+
+          {/* DApp List */}
+          {[
+            { name: 'Babylon', desc: 'Enable bitcoin holders to stake their BTC on Proof-of-Stake (PoS) systems such a...', bg: 'bg-orange-500', label: '⛓' },
+            { name: 'Optimex', desc: 'Optimex offers a full suite of DeFi use cases for Bitcoin', bg: 'bg-orange-400', label: '⬡' },
+            { name: 'CowSwap', desc: 'CoW Swap protects traders from the dangers of DeFi', bg: 'bg-blue-900', label: '🐮' },
+          ].map((dapp) => (
+            <div key={dapp.name} className="flex items-start gap-3.5 px-4 py-3.5 border-b border-gray-50 last:border-none">
+              <div className={`w-11 h-11 rounded-2xl ${dapp.bg} flex items-center justify-center text-lg shrink-0 text-white shadow-sm`}>
+                {dapp.label}
+              </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs text-gray-500 font-medium">横幅待上线</div>
-                <div className="text-xs text-gray-400 truncate">预计上线：{new Date(nextScheduled.trigger.scheduledTime!).toLocaleString('zh-CN')}</div>
+                <div className="font-semibold text-sm text-gray-900">{dapp.name}</div>
+                <div className="text-xs text-gray-400 leading-snug mt-0.5 line-clamp-2">{dapp.desc}</div>
               </div>
             </div>
-          ) : null
-        ) : (
-          <>
-            {currentBanner && (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={handleBannerClick}
-                onKeyDown={(e) => e.key === 'Enter' && handleBannerClick()}
-                className="w-full text-left p-4 rounded-2xl bg-gradient-to-br from-cyan-50 via-blue-50 to-indigo-50 border border-blue-100/50 flex items-center gap-3.5 relative shadow-sm shadow-blue-100/20 transition-all duration-300 active:scale-[0.98] cursor-pointer"
-              >
-                {currentBanner.payload.rules.manualClose && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDismiss(currentBanner.id); }}
-                    className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-gray-200/80 flex items-center justify-center hover:bg-gray-300/80 transition-colors"
-                  >
-                    <X className="w-3 h-3 text-gray-500"/>
-                  </button>
-                )}
-                <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-blue-100/30 flex items-center justify-center shrink-0">
-                  {currentBanner.payload.imageUrl ? (
-                    <img src={currentBanner.payload.imageUrl} alt="banner" className="w-8 h-8 rounded object-cover"/>
-                  ) : (
-                    <Gift className="w-6 h-6 text-blue-500"/>
-                  )}
-                </div>
-                <div className="pr-5 flex-1 min-w-0">
-                  <div className="font-semibold text-sm text-blue-900 leading-snug">{currentBanner.payload.title}</div>
-                  {currentBanner.payload.ctaLink && (
-                    <div className="mt-0.5 text-xs text-blue-400 font-medium">Tap to learn more →</div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {visibleBanners.length > 1 && (
-              <div className="flex items-center justify-between mt-2.5 px-1">
-                <button onClick={handlePrev} disabled={currentIndex === 0} className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${currentIndex === 0 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100'}`}>
-                  <ChevronLeft className="w-4 h-4"/>
-                </button>
-                <div className="flex items-center gap-1.5">
-                  {visibleBanners.map((_, i) => (
-                    <button key={i} onClick={() => setCurrentIndex(i)} className={`transition-all duration-200 rounded-full ${i === currentIndex ? 'w-4 h-1.5 bg-blue-500' : 'w-1.5 h-1.5 bg-gray-300'}`}/>
-                  ))}
-                </div>
-                <button onClick={handleNext} disabled={currentIndex === visibleBanners.length - 1} className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${currentIndex === visibleBanners.length - 1 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100'}`}>
-                  <ChevronRight className="w-4 h-4"/>
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Token List */}
-      <div className="px-5 mb-24 mt-4">
-        <div className="flex justify-between items-center mb-3">
-          <div className="font-semibold text-sm text-gray-900">Tokens</div>
-          <div className="text-xs text-blue-500 font-medium">See All</div>
+          ))}
         </div>
-        <div className="flex items-center justify-between py-3 border-b border-gray-50">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-bold">T</div>
-            <div><div className="font-medium text-sm">TRX</div><div className="text-xs text-gray-400">$0.1234</div></div>
-          </div>
-          <div className="text-right"><div className="font-medium text-sm">69.52</div><div className="text-xs text-gray-400">$8.59</div></div>
-        </div>
-        <div className="flex items-center justify-between py-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xs font-bold">$</div>
-            <div><div className="font-medium text-sm">USDT</div><div className="text-xs text-gray-400">$1.0001</div></div>
-          </div>
-          <div className="text-right"><div className="font-medium text-sm">0.00</div><div className="text-xs text-gray-400">$0.00</div></div>
-        </div>
-      </div>
+      )}
 
-      {/* Bottom Nav */}
+      {/* ── Bottom Nav (interactive) ── */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-gray-100 px-2 pb-5 pt-2 flex justify-around text-center">
-        {[
-          { name: 'Wallet', icon: Home, active: true },
-          { name: 'Market', icon: BarChart3, active: false },
-          { name: 'Browser', icon: Globe, active: false },
-          { name: 'Profile', icon: User, active: false },
-        ].map((item) => (
-          <div key={item.name} className="flex flex-col items-center">
-            <item.icon className={`w-5 h-5 ${item.active ? 'text-blue-600' : 'text-gray-400'}`}/>
-            <div className={`mt-0.5 text-[10px] font-medium ${item.active ? 'text-blue-600' : 'text-gray-400'}`}>{item.name}</div>
-          </div>
-        ))}
+        {navItems.map((item) => {
+          const isActive = item.name === 'Browser' ? currentScreen === 'Browser' : (currentScreen === 'Wallet' && item.name === 'Wallet');
+          return (
+            <button key={item.name} onClick={() => setCurrentScreen(item.screen)} className="flex flex-col items-center">
+              <item.icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-400'}`}/>
+              <div className={`mt-0.5 text-[10px] font-medium ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>{item.name}</div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
