@@ -325,7 +325,7 @@ export default function WalletSandboxPage() {
             </button>
           ))}
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto scrollbar-hidden">
           {notifTab === 'system' ? (
             [...dynamicMessages, ...SYSTEM_MESSAGES.map((msg) => ({ ...msg, preview: msg.preview }))].map((msg, i) => {
               const isDynamic = i < dynamicMessages.length;
@@ -492,7 +492,7 @@ export default function WalletSandboxPage() {
 
       {/* ── Wallet Screen ── */}
       {currentScreen === 'Wallet' && (
-        <div className="overflow-y-auto pb-20">
+        <div className="overflow-y-auto scrollbar-hidden pb-20">
           {/* Header */}
           <div className="px-5 flex justify-between items-center mt-2">
             <div className="flex items-center gap-3">
@@ -570,7 +570,7 @@ export default function WalletSandboxPage() {
 
       {/* ── Browser Screen ── */}
       {currentScreen === 'Browser' && (
-        <div className="overflow-y-auto pb-20">
+        <div className="overflow-y-auto scrollbar-hidden pb-20">
           {/* Search Bar */}
           <div className="px-4 pt-3 pb-3">
             <div className="flex items-center gap-2.5 bg-gray-100 rounded-2xl px-4 py-3">
